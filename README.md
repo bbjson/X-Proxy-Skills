@@ -1,5 +1,7 @@
 # X-Proxy-Skills (xps)
 
+[![ci](https://github.com/bbjson/X-Proxy-Skills/actions/workflows/ci.yml/badge.svg)](https://github.com/bbjson/X-Proxy-Skills/actions/workflows/ci.yml)
+
 > 国内网络环境下的开发环境加速器：**探测 → 备份 → 应用 → 验证 → 回滚**。
 > 一个 Agent Skill，也是一条命令行工具。不猜镜像、不关 TLS、不改 git 全局配置。
 
@@ -123,7 +125,7 @@ CI：`.github/workflows/ci.yml`，push 时在 Python 3.9 / 3.12 上跑 `tests/sm
 
 已闭环：
 
-- 9 类生态的探测 / 备份 / 应用 / 验证 / 回滚，29+ 项离线测试
+- 9 类生态的探测 / 备份 / 应用 / 验证 / 回滚，38 项离线测试（CI 在 py3.9 / 3.12 上跑）
 - 写失败自动回滚、`--dry-run` 零落盘、托管标记保护、备份轮转（保留 20 份）
 - `--json` 全命令机读输出；`--json` 下拒绝隐式交互
 - cargo 生成结果用 `tomllib` 校验（不会产出非法 TOML，也不会重复 `[net]`）

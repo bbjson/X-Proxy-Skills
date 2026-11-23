@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# xps —— X-Proxy-Skills 入口
+set -euo pipefail
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+py="${XPS_PYTHON:-}"
+if [ -z "$py" ]; then
+  for c in python3 python; do
+    if command -v "$c" >/dev/null 2>&1; then py="$c"; break; fi
+  done
+fi
+if [ -z "$py" ]; then
+  echo "xps: 需要 python3（>=3.9）" >&2
+  exit 1
+fi
+exec "$py" "$here/../scripts/xps.py" "$@"

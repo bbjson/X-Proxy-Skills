@@ -1,0 +1,339 @@
+{
+  "schema": 1,
+  "updated": "2026-11-23",
+  "note": "base 用于拼接探测 URL；探测结果按天内缓存，镜像站会死，别写死单一来源",
+  "ecosystems": [
+    {
+      "id": "pip",
+      "label": "Python · pip / uv / poetry",
+      "type": "file",
+      "path": "~/.config/pip/pip.conf",
+      "sudo": false,
+      "optin": false,
+      "probe": {
+        "url": "{base}/pypi/web/simple/pip/",
+        "fallback_url": "{base}/simple/pip/",
+        "accept": [
+          200,
+          203,
+          206,
+          301,
+          302,
+          401,
+          403
+        ]
+      },
+      "mirrors": [
+        {
+          "name": "tuna",
+          "label": "清华 TUNA",
+          "base": "https://pypi.tuna.tsinghua.edu.cn",
+          "index": "https://pypi.tuna.tsinghua.edu.cn/simple"
+        },
+        {
+          "name": "ustc",
+          "label": "中科大 USTC",
+          "base": "https://mirrors.ustc.edu.cn",
+          "index": "https://mirrors.ustc.edu.cn/pypi/web/simple"
+        },
+        {
+          "name": "aliyun",
+          "label": "阿里云",
+          "base": "https://mirrors.aliyun.com",
+          "index": "https://mirrors.aliyun.com/pypi/simple"
+        },
+        {
+          "name": "huawei",
+          "label": "华为云",
+          "base": "https://repo.huaweicloud.com",
+          "index": "https://repo.huaweicloud.com/repository/pypi/simple"
+        }
+      ]
+    },
+    {
+      "id": "npm",
+      "label": "Node · npm / pnpm / yarn / bun",
+      "type": "file",
+      "path": "~/.npmrc",
+      "sudo": false,
+      "optin": false,
+      "note": "pnpm / yarn / bun 都会读 ~/.npmrc 的 registry",
+      "probe": {
+        "url": "{base}/-/ping",
+        "accept": [
+          200,
+          301,
+          302,
+          401,
+          403,
+          404
+        ]
+      },
+      "mirrors": [
+        {
+          "name": "npmmirror",
+          "label": "npmmirror (淘宝)",
+          "base": "https://registry.npmmirror.com"
+        }
+      ]
+    },
+    {
+      "id": "conda",
+      "label": "Conda / mamba",
+      "type": "file",
+      "path": "~/.condarc",
+      "sudo": false,
+      "optin": false,
+      "note": "已有 .condarc 且非本工具管理时，必须 --force 才会改写",
+      "probe": {
+        "url": "{base}/anaconda/pkgs/main/noarch/current_repodata.json",
+        "accept": [
+          200,
+          203,
+          206,
+          301,
+          302
+        ]
+      },
+      "mirrors": [
+        {
+          "name": "tuna",
+          "label": "清华 TUNA",
+          "base": "https://mirrors.tuna.tsinghua.edu.cn",
+          "cloud": "https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud"
+        },
+        {
+          "name": "ustc",
+          "label": "中科大 USTC",
+          "base": "https://mirrors.ustc.edu.cn",
+          "cloud": "https://mirrors.ustc.edu.cn/anaconda/cloud"
+        },
+        {
+          "name": "bfsu",
+          "label": "北外 BFSU",
+          "base": "https://mirrors.bfsu.edu.cn",
+          "cloud": "https://mirrors.bfsu.edu.cn/anaconda/cloud"
+        }
+      ]
+    },
+    {
+      "id": "cargo",
+      "label": "Rust · cargo",
+      "type": "file",
+      "path": "~/.cargo/config.toml",
+      "sudo": false,
+      "optin": false,
+      "probe": {
+        "url": "{base}/config.json",
+        "accept": [
+          200,
+          301,
+          302,
+          403
+        ]
+      },
+      "mirrors": [
+        {
+          "name": "rsproxy",
+          "label": "rsproxy.cn (字节)",
+          "base": "https://rsproxy.cn/index",
+          "sparse": "sparse+https://rsproxy.cn/index/"
+        },
+        {
+          "name": "tuna",
+          "label": "清华 TUNA",
+          "base": "https://mirrors.tuna.tsinghua.edu.cn/crates.io-index",
+          "sparse": "sparse+https://mirrors.tuna.tsinghua.edu.cn/crates.io-index/"
+        },
+        {
+          "name": "aliyun",
+          "label": "阿里云",
+          "base": "https://mirrors.aliyun.com/crates.io-index",
+          "sparse": "sparse+https://mirrors.aliyun.com/crates.io-index/"
+        }
+      ]
+    },
+    {
+      "id": "go",
+      "label": "Go modules",
+      "type": "command",
+      "sudo": false,
+      "optin": false,
+      "probe": {
+        "url": "{base}/github.com/pkg/errors/@v/list",
+        "accept": [
+          200,
+          301,
+          302
+        ]
+      },
+      "mirrors": [
+        {
+          "name": "goproxy.cn",
+          "label": "goproxy.cn (七牛)",
+          "base": "https://goproxy.cn",
+          "proxy": "https://goproxy.cn,direct"
+        },
+        {
+          "name": "goproxy.io",
+          "label": "goproxy.io",
+          "base": "https://goproxy.io",
+          "proxy": "https://goproxy.io,direct"
+        },
+        {
+          "name": "aliyun",
+          "label": "阿里云",
+          "base": "https://mirrors.aliyun.com/goproxy",
+          "proxy": "https://mirrors.aliyun.com/goproxy/,direct"
+        }
+      ]
+    },
+    {
+      "id": "hf",
+      "label": "HuggingFace (hf-mirror / ModelScope)",
+      "type": "env",
+      "path": "~/.config/x-proxy-skills/env.sh",
+      "sudo": false,
+      "optin": false,
+      "note": "HF_ENDPOINT 只接受 HF 兼容镜像；ModelScope 不是 HF 兼容端点，要用 `modelscope download --model <id>`",
+      "probe": {
+        "url": "{base}/api/models?limit=1",
+        "accept": [
+          200,
+          301,
+          302,
+          401
+        ]
+      },
+      "mirrors": [
+        {
+          "name": "hf-mirror",
+          "label": "hf-mirror.com (HF 镜像)",
+          "base": "https://hf-mirror.com"
+        }
+      ]
+    },
+    {
+      "id": "github",
+      "label": "GitHub · clone / raw / release",
+      "type": "helper",
+      "path": "~/bin/ghclone",
+      "sudo": false,
+      "optin": false,
+      "note": "只装前缀轮换助手，绝不改 git 全局配置；私有仓库/token 禁止走前缀",
+      "probe": {
+        "url": "{base}/https://raw.githubusercontent.com/octocat/Hello-World/master/README",
+        "accept": [
+          200,
+          301,
+          302
+        ]
+      },
+      "mirrors": [
+        {
+          "name": "ghproxy.net",
+          "label": "ghproxy.net",
+          "base": "https://ghproxy.net",
+          "prefix": "https://ghproxy.net/"
+        },
+        {
+          "name": "gh-proxy",
+          "label": "gh-proxy.com",
+          "base": "https://gh-proxy.com",
+          "prefix": "https://gh-proxy.com/"
+        },
+        {
+          "name": "ghfast",
+          "label": "ghfast.top",
+          "base": "https://ghfast.top",
+          "prefix": "https://ghfast.top/"
+        },
+        {
+          "name": "githubproxy",
+          "label": "githubproxy.cc",
+          "base": "https://githubproxy.cc",
+          "prefix": "https://githubproxy.cc/"
+        }
+      ]
+    },
+    {
+      "id": "docker",
+      "label": "Docker Registry Mirror",
+      "type": "file",
+      "path": "/etc/docker/daemon.json",
+      "sudo": true,
+      "optin": true,
+      "note": "显式 --only docker 才会执行；需要 sudo；改完要重启 docker（会中断容器）",
+      "probe": {
+        "url": "{base}/v2/",
+        "accept": [
+          200,
+          301,
+          302,
+          401,
+          403
+        ]
+      },
+      "mirrors": [
+        {
+          "name": "daocloud",
+          "label": "DaoCloud",
+          "base": "https://docker.m.daocloud.io"
+        },
+        {
+          "name": "1ms",
+          "label": "1ms.run",
+          "base": "https://docker.1ms.run"
+        },
+        {
+          "name": "dockerproxy",
+          "label": "dockerproxy.net",
+          "base": "https://dockerproxy.net"
+        }
+      ]
+    },
+    {
+      "id": "apt",
+      "label": "Ubuntu/Debian apt 源",
+      "type": "file",
+      "path": "/etc/apt/sources.list",
+      "sudo": true,
+      "optin": true,
+      "note": "显式 --only apt 才会执行；只改 archive/security/ports 的 host，其它行不动",
+      "probe": {
+        "url": "{base}/ubuntu/dists/jammy/Release",
+        "accept": [
+          200,
+          301,
+          302
+        ]
+      },
+      "mirrors": [
+        {
+          "name": "tuna",
+          "label": "清华 TUNA",
+          "base": "https://mirrors.tuna.tsinghua.edu.cn",
+          "host": "mirrors.tuna.tsinghua.edu.cn"
+        },
+        {
+          "name": "ustc",
+          "label": "中科大 USTC",
+          "base": "https://mirrors.ustc.edu.cn",
+          "host": "mirrors.ustc.edu.cn"
+        },
+        {
+          "name": "aliyun",
+          "label": "阿里云",
+          "base": "https://mirrors.aliyun.com",
+          "host": "mirrors.aliyun.com"
+        },
+        {
+          "name": "bfsu",
+          "label": "北外 BFSU",
+          "base": "https://mirrors.bfsu.edu.cn",
+          "host": "mirrors.bfsu.edu.cn"
+        }
+      ]
+    }
+  ]
+}

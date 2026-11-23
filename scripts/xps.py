@@ -28,7 +28,8 @@ import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
-UA = "x-proxy-skills/1.0 (+https://github.com/)"
+VERSION = "1.1.1"
+UA = f"x-proxy-skills/{VERSION} (+https://github.com/bbjson/X-Proxy-Skills)"
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 DATA_FILE = SKILL_ROOT / "data" / "mirrors.json"
 MARK = "x-proxy-skills"
@@ -1280,7 +1281,7 @@ def main(argv: list[str] | None = None) -> int:
   xps verify --only pip,npm         验证
   xps rollback --list               看备份
   xps rollback                      回滚最近一次""")
-    ap.add_argument("-V", "--version", action="version", version="xps 1.1.0")
+    ap.add_argument("-V", "--version", action="version", version=f"xps {VERSION}")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     d = sub.add_parser("doctor", help="环境与连通性体检")

@@ -14,7 +14,7 @@ compatibility: >
   需要 sudo 的项（docker、apt）只在显式 --only 指定时才会执行。
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 metadata:
-  version: "1.1.0"
+  version: "1.1.1"
   category: devtools
   region: china-mainland
   verified: "2026-11-23"

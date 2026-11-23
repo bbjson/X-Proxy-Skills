@@ -94,10 +94,16 @@ m = {"sparse": "sparse+https://rsproxy.cn/index/"}
 _, new, _ = xps.render_cargo(eco, m, force=False)
 out = pathlib.Path(str(target) + ".new")
 out.write_text(new, encoding="utf-8")
-import tomllib
-d = tomllib.loads(new)
-assert d["net"]["retry"] == 3, "原 [net] 内容应保留"
-assert d["source"]["crates-io"]["replace-with"] == "xps"
+assert new.count("[net]") == 1, "[net] 不应重复"
+assert 'replace-with = "xps"' in new
+try:
+    import tomllib                      # 3.11+
+except ImportError:
+    tomllib = None                      # 3.9/3.10 无 tomllib，退化为字符串断言
+if tomllib:
+    d = tomllib.loads(new)
+    assert d["net"]["retry"] == 3, "原 [net] 内容应保留"
+    assert d["source"]["crates-io"]["replace-with"] == "xps"
 PYEOF
 check "cargo 合并后 TOML 合法且不重复 [net]" "[ $? -eq 0 ]"
 

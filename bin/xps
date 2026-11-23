@@ -1,7 +1,25 @@
 #!/usr/bin/env bash
 # xps —— X-Proxy-Skills 入口
+# 兼容符号链接安装（~/bin/xps -> repo/bin/xps）：先解析真实路径，再找 ../scripts。
 set -euo pipefail
-here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+src="${BASH_SOURCE[0]}"
+while [ -L "$src" ]; do
+  dir="$(cd -P "$(dirname "$src")" && pwd)"
+  src="$(readlink "$src")"
+  case "$src" in
+    /*) ;;
+    *) src="$dir/$src" ;;
+  esac
+done
+here="$(cd -P "$(dirname "$src")" && pwd)"
+target="$here/../scripts/xps.py"
+
+if [ ! -f "$target" ]; then
+  echo "xps: 找不到 $target（仓库结构被移动了？）" >&2
+  exit 1
+fi
+
 py="${XPS_PYTHON:-}"
 if [ -z "$py" ]; then
   for c in python3 python; do
@@ -12,4 +30,4 @@ if [ -z "$py" ]; then
   echo "xps: 需要 python3（>=3.9）" >&2
   exit 1
 fi
-exec "$py" "$here/../scripts/xps.py" "$@"
+exec "$py" "$target" "$@"

@@ -52,14 +52,13 @@ xps rollback --yes         # 不满意一条命令回原样
 
 ```bash
 git clone <repo> ~/src/X-Proxy-Skills && cd ~/src/X-Proxy-Skills
-chmod +x bin/xps
 
-# 当命令用
+# 命令 + skill 一起装（只建符号链接，不改任何配置）
+bash install.sh --skills-dir ~/.agents/skills
+
+# 或分开手工
 ln -s "$PWD/bin/xps" ~/.local/bin/xps
-
-# 当 pi / Claude Code skill 用
-ln -s "$PWD" ~/.agents/skills/x-proxy-skills     # pi 用户级
-ln -s "$PWD" ~/.claude/skills/x-proxy-skills     # Claude Code
+ln -s "$PWD" ~/.claude/skills/x-proxy-skills
 ```
 
 依赖：`bash`、`curl`、`python3 >= 3.9`、`git`。没有第三方 Python 包。
@@ -116,6 +115,23 @@ X-Proxy-Skills/
 ```bash
 bash tests/smoke.sh          # 在临时 HOME 里跑，不碰真实配置，不需要网络
 ```
+
+## 完整度（如实说明）
+
+已闭环：
+
+- 9 类生态的探测 / 备份 / 应用 / 验证 / 回滚，29+ 项离线测试
+- 写失败自动回滚、`--dry-run` 零落盘、托管标记保护、备份轮转（保留 20 份）
+- `--json` 全命令机读输出；`--json` 下拒绝隐式交互
+- cargo 生成结果用 `tomllib` 校验（不会产出非法 TOML，也不会重复 `[net]`）
+
+还没做（`references/troubleshooting.md` 里给的是手工命令）：
+
+- `uv` / `poetry` 的 renderer（它们不读 pip.conf）
+- Ubuntu 24.04+ 的 deb822 `.sources`
+- Maven / Gradle / gem / Flutter
+- `--scope project`：项目级落点
+- 代理本身的配置（本工具只探测和提示，不写 clash/v2ray 配置）
 
 ## 路线图
 

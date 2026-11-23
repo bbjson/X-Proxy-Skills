@@ -81,12 +81,57 @@ check "npmrc 被删除" "[ ! -e '$HOME/.npmrc' ]"
 check ".bashrc 恢复原文" "[ \"\$(cat '$HOME/.bashrc')\" = 'export KEEP=1' ]"
 check "hfd 被删除" "[ ! -e '$HOME/bin/hfd' ]"
 
-echo "== 9. 拒绝带凭据的 URL"
+echo "== 9. cargo 不产出重复 [net]"
+mkdir -p "$HOME/.cargo2"
+printf '[build]\nincremental = true\n\n[net]\nretry = 3\n' > "$HOME/.cargo2/config.toml"
+XPS_CARGO_TEST=1 python3 - "$ROOT" "$HOME/.cargo2/config.toml" <<'PYEOF'
+import sys, pathlib
+root, target = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+sys.path.insert(0, str(root / "scripts"))
+import xps
+eco = {"id": "cargo", "path": str(target)}
+m = {"sparse": "sparse+https://rsproxy.cn/index/"}
+_, new, _ = xps.render_cargo(eco, m, force=False)
+out = pathlib.Path(str(target) + ".new")
+out.write_text(new, encoding="utf-8")
+import tomllib
+d = tomllib.loads(new)
+assert d["net"]["retry"] == 3, "原 [net] 内容应保留"
+assert d["source"]["crates-io"]["replace-with"] == "xps"
+PYEOF
+check "cargo 合并后 TOML 合法且不重复 [net]" "[ $? -eq 0 ]"
+
+echo "== 10. --json 不允许隐式交互"
+"$XPS" apply --only pip --no-probe --json >/dev/null 2>&1
+check "--json 缺 --yes 时返回非零" "[ $? -ne 0 ]"
+check "--json 失败时没写 pip.conf" "[ ! -e '$HOME/.config/pip/pip.conf' ]"
+
+echo "== 11. 写失败自动回滚"
+mkdir -p "$HOME/blocked/bin"
+printf 'export KEEP=1\n' > "$HOME/blocked/.bashrc"
+chmod 500 "$HOME/blocked/bin"              # 只读目录：hfd 写入必然失败
+XPS_STATE_DIR="$TMP/state2" HOME="$HOME/blocked" \
+  "$XPS" apply --only hf --no-probe --yes >/dev/null 2>&1
+rc=$?
+chmod 700 "$HOME/blocked/bin"
+check "写失败返回非零" "[ $rc -ne 0 ]"
+check "已写入的 .bashrc 被自动还原" "[ \"\$(cat '$HOME/blocked/.bashrc')\" = 'export KEEP=1' ]"
+check "已写入的 env.sh 被自动删除" "[ ! -e '$HOME/blocked/.config/x-proxy-skills/env.sh' ]"
+check "留下 aborted 备份记录" "grep -rq '\"aborted\": true' '$TMP/state2/backups' 2>/dev/null"
+rm -rf "$HOME/blocked" "$TMP/state2" "$HOME/.cargo2"
+
+echo "== 12. 拒绝带凭据的 URL"
 if "$XPS" gh 'https://user:tok@github.com/a/b' >/dev/null 2>&1; then
   bad "带凭据 URL 应被拒绝"
 else
   ok "带凭据 URL 被拒绝"
 fi
+
+echo "== 13. 符号链接安装可用"
+mkdir -p "$TMP/links"
+ln -sfn "$ROOT/bin/xps" "$TMP/links/xps"
+check "经符号链接 --version 可用" "'$TMP/links/xps' --version | grep -q '^xps '"
+check "经符号链接 doctor 可用" "'$TMP/links/xps' doctor --no-net | grep -q '^系统'"
 
 echo
 if [ "$failn" -eq 0 ]; then

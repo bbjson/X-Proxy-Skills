@@ -33,6 +33,8 @@ SKILL_ROOT = Path(__file__).resolve().parents[1]
 DATA_FILE = SKILL_ROOT / "data" / "mirrors.json"
 MARK = "x-proxy-skills"
 MARK_LINE = f"# managed-by: {MARK}"
+MARK_BEGIN = f"# >>> {MARK} >>>"
+MARK_END = f"# <<< {MARK} <<<"
 
 STATE_DIR = Path(os.environ.get("XPS_STATE_DIR") or Path.home() / ".local/share/x-proxy-skills")
 CACHE_DIR = Path(os.environ.get("XPS_CACHE_DIR") or Path.home() / ".cache/x-proxy-skills")
@@ -63,7 +65,9 @@ def expand(p: str) -> Path:
 def read_text(path: Path) -> str | None:
     try:
         return path.read_text(encoding="utf-8")
-    except FileNotFoundError:
+    except (FileNotFoundError, IsADirectoryError, NotADirectoryError):
+        return None
+    except OSError:
         return None
 
 
@@ -321,31 +325,35 @@ def render_conda(eco, m, force) -> tuple[str, str, list[str]]:
     return "file", conda_yaml(m), []
 
 
-def cargo_toml(m) -> str:
-    return f"""{MARK_LINE}
-[source.crates-io]
-replace-with = "xps"
-
-[source.xps]
-registry = "{m['sparse']}"
-
-[net]
-git-fetch-with-cli = true
-"""
+def cargo_block(m, existing: str = "") -> str:
+    body = (f"[source.crates-io]\nreplace-with = \"xps\"\n\n"
+            f"[source.xps]\nregistry = \"{m['sparse']}\"\n")
+    if not re.search(r"^\s*\[net\]", existing, re.M):
+        body += "\n[net]\ngit-fetch-with-cli = true\n"
+    return f"{MARK_BEGIN}\n{body}{MARK_END}\n"
 
 
 def render_cargo(eco, m, force) -> tuple[str, str, list[str]]:
     path = expand(eco["path"])
-    old = read_text(path)
-    if old:
-        managed = MARK_LINE in old
-        has_src = re.search(r"^\s*\[source\.crates-io\]", old, re.M)
-        if not managed and has_src and not force:
+    old = read_text(path) or ""
+    notes: list[str] = []
+    if old and MARK_BEGIN in old and MARK_END in old:
+        new = re.sub(rf"{re.escape(MARK_BEGIN)}.*?{re.escape(MARK_END)}\n?",
+                     lambda _m: cargo_block(m, old), old, flags=re.S)
+    elif old:
+        if re.search(r"^\s*\[source\.crates-io\]", old, re.M) and not force:
             raise Skip(f"{path} 里已有 [source.crates-io]，加 --force 才会覆盖（先备份）")
-        if not managed and not has_src and not force:
-            # 只是零星配置：追加托管块，不动原有内容
-            return "file", old.rstrip("\n") + "\n\n" + cargo_toml(m), []
-    return "file", cargo_toml(m), []
+        new = old.rstrip("\n") + "\n\n" + cargo_block(m, old)
+    else:
+        new = cargo_block(m)
+    try:
+        import tomllib
+        tomllib.loads(new)
+    except ImportError:
+        pass
+    except Exception as ex:
+        raise Fail(f"生成的 {path} 不是合法 TOML（{ex}）；已中止，未写入")
+    return "file", new, notes
 
 
 HF_ENV = f"""{MARK_LINE} 由 `xps apply --only hf` 生成
@@ -596,44 +604,73 @@ def apply_ops(ops: list[Op], args, picks: dict | None = None) -> dict:
             old = path.read_text(encoding="utf-8") if path.exists() else None
         except PermissionError:
             raise Fail(f"{path} 读不了（需要 sudo）；为免半途而废已中止，未写入任何文件")
+        except OSError as ex:
+            raise Fail(f"{path} 读不了（{ex}）；未写入任何文件")
         mode = (path.stat().st_mode & 0o777) if path.exists() else (op.mode or 0o644)
         prepared.append((i, op, old, mode))
 
-    done = []
-    for i, op, old, mode in prepared:
-        path = op.path
-        assert path is not None
-        item = {"eco": op.eco, "kind": "file", "path": str(path),
-                "existed": old is not None, "mode": mode}
-        if args.dry_run:
+    done: list[str] = []
+    try:
+        for i, op, old, mode in prepared:
+            path = op.path
+            assert path is not None
+            item = {"eco": op.eco, "kind": "file", "path": str(path),
+                    "existed": old is not None, "mode": mode}
+            if args.dry_run:
+                if old is not None:
+                    item["backup"] = "(dry-run 未写)"
+                manifest["items"].append(item)
+                diff = difflib.unified_diff((old or "").splitlines(), (op.content or "").splitlines(),
+                                            fromfile=f"{path} (当前)", tofile=f"{path} (应用后)", lineterm="")
+                print("\n".join(diff) or f"(无内容变化) {path}")
+                continue
             if old is not None:
-                item["backup"] = "(dry-run 未写)"
+                bdir.mkdir(parents=True, exist_ok=True)
+                bf = bdir / f"{i:02d}-{path.name}"
+                bf.write_text(old, encoding="utf-8")
+                item["backup"] = str(bf.relative_to(bdir))
             manifest["items"].append(item)
-            diff = difflib.unified_diff((old or "").splitlines(), (op.content or "").splitlines(),
-                                        fromfile=f"{path} (当前)", tofile=f"{path} (应用后)", lineterm="")
-            print("\n".join(diff) or f"(无内容变化) {path}")
-            continue
-        if old is not None:
-            bdir.mkdir(parents=True, exist_ok=True)
-            bf = bdir / f"{i:02d}-{path.name}"
-            bf.write_text(old, encoding="utf-8")
-            item["backup"] = str(bf.relative_to(bdir))
-        manifest["items"].append(item)
-        write_file(path, op.content or "", mode)
-        done.append(item["path"])
+            write_file(path, op.content or "", mode)
+            done.append(item["path"])
 
-    for i, op in enumerate(ops):
-        if op.kind != "command" or not op.argv:
-            continue
+        for op in ops:
+            if op.kind != "command" or not op.argv:
+                continue
+            if args.dry_run:
+                print(f"$ {' '.join(op.argv)}")
+                continue
+            p = subprocess.run(op.argv, capture_output=True, text=True)
+            if p.returncode != 0:
+                raise Fail(f"命令失败: {' '.join(op.argv)}\n{p.stderr.strip()}")
+            manifest["items"].append({"eco": op.eco, "kind": "command",
+                                      "argv": op.argv, "undo": op.undo})
+            done.append(" ".join(op.argv))
+    except Exception as ex:
         if args.dry_run:
-            print(f"$ {' '.join(op.argv)}")
-            continue
-        p = subprocess.run(op.argv, capture_output=True, text=True)
-        if p.returncode != 0:
-            raise Fail(f"命令失败: {' '.join(op.argv)}\n{p.stderr.strip()}")
-        manifest["items"].append({"eco": op.eco, "kind": "command",
-                                  "argv": op.argv, "undo": op.undo})
-        done.append(" ".join(op.argv))
+            raise
+        # 半途失败：先把已经写下去的恢复，再留下 aborted 记录，保证"一条命令回到原样"成立
+        manifest["aborted"] = True
+        manifest["error"] = str(ex)
+        restored = 0
+        for item in reversed(manifest["items"]):
+            try:
+                if item["kind"] == "file":
+                    if item.get("existed") and item.get("backup") and item["backup"] != "(dry-run 未写)":
+                        write_file(Path(item["path"]), (bdir / item["backup"]).read_text(encoding="utf-8"),
+                                   item.get("mode"))
+                        restored += 1
+                    elif not item.get("existed"):
+                        Path(item["path"]).unlink(missing_ok=True)
+                        restored += 1
+                elif item.get("undo"):
+                    subprocess.run(item["undo"], capture_output=True)
+            except Exception:
+                pass
+        bdir.mkdir(parents=True, exist_ok=True)
+        atomic_write(bdir / "manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
+        if isinstance(ex, Fail):
+            raise Fail(f"{ex}\n（已自动回滚 {restored} 项；备份 id={bid}，可 `xps rollback --to {bid}` 复查）")
+        raise Fail(f"{ex}\n（已自动回滚 {restored} 项；备份 id={bid}）")
 
     if not args.dry_run and manifest["items"]:
         bdir.mkdir(parents=True, exist_ok=True)
@@ -649,7 +686,17 @@ def apply_ops(ops: list[Op], args, picks: dict | None = None) -> dict:
         st["last_backup"] = bid
         st["last_picks"] = {k: v["name"] for k, v in (picks or {}).items()}
         save_state(st)
+        prune_backups(keep=int(os.environ.get("XPS_KEEP_BACKUPS", "20")))
     return manifest
+
+
+def prune_backups(keep: int = 20) -> None:
+    """只保留最近 keep 个备份；带 aborted 标记的也照样轮转。"""
+    if keep <= 0 or not BACKUP_DIR.exists():
+        return
+    dirs = sorted((p for p in BACKUP_DIR.iterdir() if (p / "manifest.json").exists()), key=lambda p: p.name)
+    for old in dirs[:-keep]:
+        shutil.rmtree(old, ignore_errors=True)
 
 
 def write_file(path: Path, content: str, mode: int | None) -> None:
@@ -659,6 +706,8 @@ def write_file(path: Path, content: str, mode: int | None) -> None:
         return
     except PermissionError:
         pass
+    except OSError as ex:
+        raise Fail(f"{path} 写不了（{ex}）；可用 `xps rollback --to <id>` 恢复已写入的项")
     if subprocess.run(["sudo", "-n", "true"], capture_output=True).returncode != 0:
         raise Fail(f"{path} 需要 sudo 且当前无免密 sudo；请用 sudo 手动写，或配好 NOPASSWD 再跑")
     tmp = Path("/tmp") / f"xps-{os.getpid()}-{path.name}"
@@ -868,11 +917,14 @@ def cmd_status(args) -> int:
     for h in hist[-5:]:
         print(f"  {h['id']}  {h['at']}  {len(h['items'])} 项")
     print("备份：" + (", ".join(out["backups"]) or "无"))
-    print("上次选择的实际状态：")
-    icon = {"ok": "✓", "fail": "✗", "skip": "-", "?": "?"}
-    for r in rows:
-        if r["status"] in ("ok", "fail"):
-            print(f"  {icon[r['status']]} {r['eco']:<9} {r['detail']}")
+    if not picks:
+        print("（还没有 apply 记录；先跑 `xps apply --dry-run`）")
+    else:
+        print("上次选择的实际状态：")
+        icon = {"ok": "✓", "fail": "✗", "skip": "-", "?": "?"}
+        for r in rows:
+            if r["status"] in ("ok", "fail"):
+                print(f"  {icon[r['status']]} {r['eco']:<9} {r['detail']}")
     print("提示：重新探测并验证用 `xps verify --only pip,npm`")
     return 0
 
@@ -923,6 +975,9 @@ def cmd_apply(args) -> int:
     ecos = sel(data["ecosystems"], args.only, args.exclude, include_optin=bool(args.only))
     probes = {} if args.no_probe else probe_all(ecos, args.timeout, args.refresh, verbose=not args.json)
     ops, notes, picks = build_plan(ecos, args, probes)
+
+    if args.json and not args.dry_run and not args.yes:
+        raise Fail("--json 模式不能等待交互确认，请加 --yes（或先 --dry-run）")
 
     if not args.json:
         for n in notes:
@@ -1105,6 +1160,9 @@ def main(argv: list[str] | None = None) -> int:
     g.set_defaults(func=cmd_gh)
 
     args = ap.parse_args(argv)
+    if args.cmd in ("probe", "apply", "verify", "gh") and not shutil.which("curl"):
+        print("错误: 需要 curl（探测用）。请先安装 curl。", file=sys.stderr)
+        return 2
     if args.cmd == "list" and args.eco and not args.only:
         args.only = args.eco
     try:
@@ -1118,6 +1176,12 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("\n已中断", file=sys.stderr)
         return 130
+    except Exception as ex:  # 兜底：不把 traceback 甩给用户
+        if os.environ.get("XPS_DEBUG"):
+            raise
+        print(f"错误: {type(ex).__name__}: {ex}", file=sys.stderr)
+        print("提示: XPS_DEBUG=1 可看完整 traceback", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

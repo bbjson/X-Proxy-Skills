@@ -11,7 +11,7 @@ license: MIT
 compatibility: >
   Linux / macOS / WSL 优先（Ubuntu 22.04 实测）。依赖 bash、curl、python3(>=3.9)、git。
   需要 sudo 的项（docker、apt）只在显式 --only 指定时才会执行。
-allowed-tools: Bash Read Write Edit Glob Grep
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 metadata:
   version: "1.0.0"
   category: devtools
@@ -36,27 +36,29 @@ metadata:
 | conda solve 慢 / 下包慢 | `xps apply --only conda --force`（接管已有 .condarc） |
 | 不知道问题在哪 | `xps doctor` → `xps probe` → `xps verify` |
 
+## 0. 先定位脚本（不要假设 cwd）
+
+所有命令都在本 skill 目录下的 `bin/xps`。pi 会在上下文里给出 skill 的绝对路径，Claude Code 等
+用 `readlink` 或直接写绝对路径：
+
+```bash
+XPS="$SKILL_DIR/bin/xps"        # pi 已给出 SKILL_DIR；否则用下面的办法
+# SKILL_DIR="$(dirname "$(readlink -f ~/.agents/skills/x-proxy-skills/SKILL.md)")"
+"$XPS" doctor
+```
+
+装了 `bash install.sh` 之后 PATH 里有 `xps`，下文直接写 `xps` 即可。
+
 ## 30 秒上手
 
 ```bash
-# 0. 体检（本机配置现状 + 连通性 + 是否有免密 sudo）
-./bin/xps doctor
-
-# 1. 看谁最快（并行探测，结果缓存 1 小时）
-./bin/xps probe
-
-# 2. 看会改什么（不写任何文件）
-./bin/xps apply --dry-run
-
-# 3. 应用（默认跳过需要 sudo 的 docker/apt）
-./bin/xps apply --yes
-
-# 4. 验证
-./bin/xps verify
-
-# 5. 不满意就回滚
-./bin/xps rollback --list
-./bin/xps rollback --yes
+xps doctor              # 体检：系统 / 代理 / 配置现状 / 连通性 / 免密 sudo
+xps probe               # 看谁最快（并行探测，结果缓存 1 小时）
+xps apply --dry-run     # 看会改什么，不写任何文件
+xps apply --yes         # 应用（默认跳过需要 sudo 的 docker/apt）
+xps verify              # 回读配置，证明改对了
+xps rollback --list     # 备份列表
+xps rollback --yes      # 回滚最近一次
 ```
 
 装到 pi / Claude Code：
@@ -91,6 +93,14 @@ ln -s "$PWD/bin/xps" ~/.local/bin/xps
 | `github` | `~/bin/ghclone` | ✅ | ✅ | ✅ | **只装助手，不改 git 配置** |
 | `docker` | `/etc/docker/daemon.json` | ✅ | ✅ | ✅ | opt-in + sudo |
 | `apt` | `/etc/apt/sources.list` | ✅ | ✅ | ✅ | opt-in + sudo；deb822 系统需手工 |
+
+## 平台与边界
+
+- **支持**：Linux（Ubuntu 22.04 实测）、macOS、WSL。Windows 原生不支持（没有 sudo/apt 语义，路径也不同）。
+- **不做**：`uv` / `poetry` 的配置落点（它们不读 `pip.conf`，references 给了正确命令）；Ubuntu 24.04+ 的
+  deb822 `.sources`；Maven/Gradle/gem；`--scope project`（目前只写用户级）。
+- **需要 root 的两项**（docker/apt）必须显式 `--only`，且本工具**不会**帮你重启服务。
+- 半途失败会**自动回滚**已写入的项，并留下 `aborted` 备份记录，可 `xps rollback --to <id>` 复查。
 
 ## 安全红线
 

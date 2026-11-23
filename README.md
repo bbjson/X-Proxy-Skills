@@ -117,8 +117,7 @@ X-Proxy-Skills/
 bash tests/smoke.sh          # 在临时 HOME 里跑，不碰真实配置，不需要网络（38 项）
 ```
 
-CI 配置在 `docs/ci.yml.example`（因为推送用的 OAuth App token 没有 `workflow` scope，
-`gh auth refresh -h github.com -s workflow` 之后复制回 `.github/workflows/ci.yml` 即可启用）。
+CI：`.github/workflows/ci.yml`，push 时在 Python 3.9 / 3.12 上跑 `tests/smoke.sh`（离线，临时 HOME）。
 
 ## 完整度（如实说明）
 

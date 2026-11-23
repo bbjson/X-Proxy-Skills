@@ -125,6 +125,11 @@ check "已写入的 env.sh 被自动删除" "[ ! -e '$HOME/blocked/.config/x-pro
 check "留下 aborted 备份记录" "grep -rq '\"aborted\": true' '$TMP/state2/backups' 2>/dev/null"
 rm -rf "$HOME/blocked" "$TMP/state2" "$HOME/.cargo2"
 
+echo "== 11.5 全量 verify 不因缺 path 崩溃"
+out=$("$XPS" verify --no-probe 2>&1); rc=$?
+check "全量 verify 不抛异常" "! grep -qiE 'Traceback|KeyError' <<<\"\$out\""
+check "全量 verify 返回 0/1 而非 2" "[ $rc -ne 2 ]"
+
 echo "== 12. 拒绝带凭据的 URL"
 if "$XPS" gh 'https://user:tok@github.com/a/b' >/dev/null 2>&1; then
   bad "带凭据 URL 应被拒绝"

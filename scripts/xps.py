@@ -96,13 +96,14 @@ def load_data() -> dict:
 PROJECT_FILES = {"npm": ".npmrc", "uv": "uv.toml"}
 
 
-def eco_path(eco: dict, project: str | None) -> Path:
-    """返回该生态本次要写/要读的真实路径（支持 --project 项目级落点）。"""
+def eco_path(eco: dict, project: str | None) -> Path | None:
+    """返回该生态本次要写/要读的真实路径；没有文件落点（如 go）时返回 None。"""
+    raw = eco.get("path")
     if project and eco["id"] in PROJECT_FILES:
         return (Path(project).expanduser().resolve() / PROJECT_FILES[eco["id"]])
-    if project and eco.get("project_only"):
-        return Path(project).expanduser().resolve() / Path(eco["path"]).name
-    return expand(eco["path"])
+    if project and eco.get("project_only") and raw:
+        return Path(project).expanduser().resolve() / Path(raw).name
+    return expand(raw) if raw else None
 
 
 def eco_by_id(data: dict) -> dict:
@@ -859,6 +860,11 @@ def verify_eco(eco: dict, picks: dict, project: str | None = None) -> tuple[str,
         return "skip", "本次未选择"
     path = eco_path(eco, project)
     try:
+        if eid in ("pip", "uv", "poetry", "npm", "conda", "cargo", "hf", "docker"):
+            if path is None:
+                return "fail", "该生态缺 path 配置"
+            if eid != "docker" and not path.exists():
+                return "skip", "尚未配置（文件不存在）"
         if eid in ("pip", "uv", "poetry"):
             txt = read_text(path) or ""
             key = "index-url" if eid == "pip" else "url"
@@ -900,6 +906,8 @@ def verify_eco(eco: dict, picks: dict, project: str | None = None) -> tuple[str,
             if not go:
                 return "skip", "PATH 里没有 go"
             got = subprocess.run([go, "env", "GOPROXY"], capture_output=True, text=True).stdout.strip()
+            if not got:
+                return "skip", "尚未配置（GOPROXY 为空）"
             for m in eco["mirrors"]:
                 if m["proxy"] == got:
                     return "ok", f"{m['name']}  {got}"
@@ -914,7 +922,9 @@ def verify_eco(eco: dict, picks: dict, project: str | None = None) -> tuple[str,
                    ("fail", "env.sh / .bashrc / hfd 不完整")
         if eid == "github":
             p = expand("~/bin/ghclone")
-            return ("ok", str(p)) if p.exists() and os.access(p, os.X_OK) else ("fail", "ghclone 未安装或不可执行")
+            if not p.exists():
+                return "skip", "尚未安装 ghclone"
+            return ("ok", str(p)) if os.access(p, os.X_OK) else ("fail", "ghclone 不可执行")
         if eid == "docker":
             txt = read_text(path) or ""
             for m in eco["mirrors"]:

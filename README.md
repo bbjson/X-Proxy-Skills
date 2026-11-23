@@ -51,7 +51,8 @@ xps rollback --yes         # 不满意一条命令回原样
 ## 安装
 
 ```bash
-git clone <repo> ~/src/X-Proxy-Skills && cd ~/src/X-Proxy-Skills
+git clone https://github.com/bbjson/X-Proxy-Skills.git ~/src/X-Proxy-Skills
+cd ~/src/X-Proxy-Skills
 
 # 命令 + skill 一起装（只建符号链接，不改任何配置）
 bash install.sh --skills-dir ~/.agents/skills
@@ -113,8 +114,11 @@ X-Proxy-Skills/
 ## 测试
 
 ```bash
-bash tests/smoke.sh          # 在临时 HOME 里跑，不碰真实配置，不需要网络
+bash tests/smoke.sh          # 在临时 HOME 里跑，不碰真实配置，不需要网络（38 项）
 ```
+
+CI 配置在 `docs/ci.yml.example`（因为推送用的 OAuth App token 没有 `workflow` scope，
+`gh auth refresh -h github.com -s workflow` 之后复制回 `.github/workflows/ci.yml` 即可启用）。
 
 ## 完整度（如实说明）
 

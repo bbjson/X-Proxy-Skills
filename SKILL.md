@@ -17,7 +17,7 @@ metadata:
   category: devtools
   region: china-mainland
   verified: "2026-11-23"
-  repo: https://github.com/<you>/X-Proxy-Skills
+  repo: https://github.com/bbjson/X-Proxy-Skills
 ---
 
 # X-Proxy-Skills

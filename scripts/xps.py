@@ -83,7 +83,26 @@ def atomic_write(path: Path, text: str, mode: int | None = None) -> None:
 
 def load_data() -> dict:
     with open(DATA_FILE, encoding="utf-8") as f:
-        return json.load(f)
+        data = json.load(f)
+    by_id = {e["id"]: e for e in data["ecosystems"]}
+    for e in data["ecosystems"]:
+        src = e.get("mirrors_from")
+        if src and src in by_id:
+            e["mirrors"] = [dict(m) for m in by_id[src]["mirrors"]]
+            e.setdefault("probe", by_id[src]["probe"])
+    return data
+
+
+PROJECT_FILES = {"npm": ".npmrc", "uv": "uv.toml"}
+
+
+def eco_path(eco: dict, project: str | None) -> Path:
+    """返回该生态本次要写/要读的真实路径（支持 --project 项目级落点）。"""
+    if project and eco["id"] in PROJECT_FILES:
+        return (Path(project).expanduser().resolve() / PROJECT_FILES[eco["id"]])
+    if project and eco.get("project_only"):
+        return Path(project).expanduser().resolve() / Path(eco["path"]).name
+    return expand(eco["path"])
 
 
 def eco_by_id(data: dict) -> dict:
@@ -263,8 +282,7 @@ def ini_set(text: str | None, section: str | None, kv: dict[str, str]) -> str:
     return "\n".join(out) + "\n"
 
 
-def render_pip(eco, m, force) -> tuple[str, str, list[str]]:
-    path = expand(eco["path"])
+def render_pip(eco, m, force, path) -> tuple[str, str, list[str]]:
     old = read_text(path)
     notes: list[str] = []
     if old and re.search(r"^\s*extra-index-url\s*=", old, re.M):
@@ -282,9 +300,10 @@ def render_pip(eco, m, force) -> tuple[str, str, list[str]]:
     return "file", new, notes
 
 
-def render_npm(eco, m, force) -> tuple[str, str, list[str]]:
-    path = expand(eco["path"])
-    old = read_text(path)
+def render_npm(eco, m, force, path) -> tuple[str, str, list[str]]:
+    old = read_text(path) or ""
+    if not path.parent.exists():
+        raise Skip(f"{path.parent} 不存在（--project 要给一个真实项目目录）")
     new = ini_set(old, None, {"registry": m["base"]})
     return "file", new, []
 
@@ -316,8 +335,7 @@ custom_channels:
 """
 
 
-def render_conda(eco, m, force) -> tuple[str, str, list[str]]:
-    path = expand(eco["path"])
+def render_conda(eco, m, force, path) -> tuple[str, str, list[str]]:
     old = read_text(path)
     if old and MARK_LINE not in old and not force:
         raise Skip(f"已存在非本工具管理的 {path}（{len(old.splitlines())} 行）；"
@@ -333,8 +351,7 @@ def cargo_block(m, existing: str = "") -> str:
     return f"{MARK_BEGIN}\n{body}{MARK_END}\n"
 
 
-def render_cargo(eco, m, force) -> tuple[str, str, list[str]]:
-    path = expand(eco["path"])
+def render_cargo(eco, m, force, path) -> tuple[str, str, list[str]]:
     old = read_text(path) or ""
     notes: list[str] = []
     if old and MARK_BEGIN in old and MARK_END in old:
@@ -356,11 +373,78 @@ def render_cargo(eco, m, force) -> tuple[str, str, list[str]]:
     return "file", new, notes
 
 
+def uv_toml(m) -> str:
+    return (f"{MARK_LINE}\n"
+            f"# uv 不读 pip.conf；这里用 uv 的默认索引（uv >= 0.4.23 支持 default = true）\n"
+            f"[[index]]\nurl = \"{m['index']}\"\ndefault = true\n")
+
+
+def render_uv(eco, m, force, path) -> tuple[str, str, list[str]]:
+    old = read_text(path) or ""
+    notes: list[str] = []
+    if old and MARK_LINE not in old and not force:
+        raise Skip(f"已存在非本工具管理的 {path}；要接管请加 --force（先备份）")
+    new = uv_toml(m)
+    try:
+        import tomllib
+        tomllib.loads(new)
+    except ImportError:
+        pass
+    except Exception as ex:
+        raise Fail(f"生成的 {path} 不是合法 TOML（{ex}）；已中止")
+    if old and "[[index]]" in old and MARK_LINE not in old:
+        notes.append("原文件里已有 [[index]] 表，--force 后会被替换")
+    return "file", new, notes
+
+
+def poetry_block(m) -> str:
+    return (f"{MARK_BEGIN}\n"
+            f"[[tool.poetry.source]]\n"
+            f"name = \"xps\"\n"
+            f"url = \"{m['index']}\"\n"
+            f"priority = \"primary\"\n"
+            f"{MARK_END}\n")
+
+
+def render_poetry(eco, m, force, path) -> tuple[str, str, list[str]]:
+    old = read_text(path)
+    if old is None:
+        raise Skip(f"{path} 不存在：poetry 只能项目级配置，先 `poetry new/init`，再用 --project <dir>")
+    if "[tool.poetry]" not in old and "[project]" not in old:
+        raise Skip(f"{path} 里没有 [tool.poetry]/[project]，不像 poetry 项目")
+    if MARK_BEGIN in old and MARK_END in old:
+        new = re.sub(rf"{re.escape(MARK_BEGIN)}.*?{re.escape(MARK_END)}\n?",
+                     lambda _m: poetry_block(m), old, flags=re.S)
+    else:
+        clashes = re.findall(r"^\s*\[\[tool\.poetry\.source\]\]", old, re.M)
+        if clashes and not force:
+            raise Skip(f"{path} 已有 {len(clashes)} 个 [[tool.poetry.source]]；加 --force 才追加 primary 源")
+        new = old.rstrip("\n") + "\n\n" + poetry_block(m)
+    try:
+        import tomllib
+        tomllib.loads(new)
+    except ImportError:
+        pass
+    except Exception as ex:
+        raise Fail(f"合并后的 {path} 不是合法 TOML（{ex}）；已中止")
+    notes = ["priority=primary 会让 poetry 只查这个源；需要保留官方源请改用 priority=supplemental"]
+    return "file", new, notes
+
+
 HF_ENV = f"""{MARK_LINE} 由 `xps apply --only hf` 生成
 # 只要 HF_ENDPOINT 指向 hf-mirror，transformers / diffusers / huggingface-cli 全走镜像
 export HF_ENDPOINT="${{HF_ENDPOINT:-https://hf-mirror.com}}"
 # 国内直连 HF 的 xet 后端经常超时，关掉更稳
 export HF_HUB_DISABLE_XET="${{HF_HUB_DISABLE_XET:-1}}"
+
+# ---- 二进制下载器（npmmirror CDN，2026-11-23 实测可下）----
+export PLAYWRIGHT_DOWNLOAD_HOST="${{PLAYWRIGHT_DOWNLOAD_HOST:-https://cdn.npmmirror.com/binaries/playwright}}"
+export PUPPETEER_DOWNLOAD_BASE_URL="${{PUPPETEER_DOWNLOAD_BASE_URL:-https://cdn.npmmirror.com/binaries/chrome-for-testing}}"
+export ELECTRON_MIRROR="${{ELECTRON_MIRROR:-https://npmmirror.com/mirrors/electron/}}"
+export npm_config_disturl="${{npm_config_disturl:-https://registry.npmmirror.com/-/binary/node}}"
+# ---- Flutter 中国官方镜像 ----
+export PUB_HOSTED_URL="${{PUB_HOSTED_URL:-https://pub.flutter-io.cn}}"
+export FLUTTER_STORAGE_BASE_URL="${{FLUTTER_STORAGE_BASE_URL:-https://storage.flutter-io.cn}}"
 """
 
 BASHRC_BLOCK = f"""# >>> {MARK} >>>
@@ -469,6 +553,27 @@ class Op:
         self.mode, self.argv, self.undo, self.sudo = mode, argv, undo, sudo
 
 
+APT_OFFICIAL = re.compile(r"https?://(?:archive|security|ports)\.ubuntu\.com|https?://deb\.debian\.org")
+
+
+def apt_files() -> list[Path]:
+    files: list[Path] = []
+    classic = Path("/etc/apt/sources.list")
+    if classic.exists():
+        files.append(classic)
+    d = Path("/etc/apt/sources.list.d")
+    if d.is_dir():
+        files += sorted(d.glob("*.sources"))
+    return files
+
+
+def apt_rewrite(text: str, host: str) -> str | None:
+    """只换 host（顺带把 http 升到 https），保留路径 /ubuntu、/debian 与所有其它字段。"""
+    if not APT_OFFICIAL.search(text):
+        return None
+    return APT_OFFICIAL.sub(f"https://{host}", text)
+
+
 def build_plan(ecos: list[dict], args, probes: dict) -> tuple[list[Op], list[str], dict]:
     ops: list[Op] = []
     notes: list[str] = []
@@ -484,18 +589,23 @@ def build_plan(ecos: list[dict], args, probes: dict) -> tuple[list[Op], list[str
             continue
 
         if eco["type"] == "file":
-            renderer = {"pip": render_pip, "npm": render_npm, "conda": render_conda,
-                        "cargo": render_cargo, "apt": lambda e, mm, f: ("file", None, []),
-                        "docker": lambda e, mm, f: ("file", None, [])}.get(eid)
             if eid in ("apt", "docker"):
                 continue  # 单独处理（需要 sudo）
+            if eco.get("project_only") and not getattr(args, "project", None):
+                notes.append(f"[{eid}] 跳过：{eco['label']} 只能项目级配置，请加 --project <目录>")
+                continue
+            renderer = {"pip": render_pip, "npm": render_npm, "conda": render_conda,
+                        "cargo": render_cargo, "uv": render_uv, "poetry": render_poetry}.get(eid)
+            if renderer is None:
+                notes.append(f"[{eid}] 跳过：没有 renderer")
+                continue
+            path = eco_path(eco, getattr(args, "project", None))
             try:
-                _, content, en = renderer(eco, m, args.force)  # type: ignore[misc]
+                _, content, en = renderer(eco, m, args.force, path)  # type: ignore[misc]
             except Skip as ex:
                 notes.append(f"[{eid}] 跳过：{ex}")
                 continue
             notes.extend(f"[{eid}] {n}" for n in en)
-            path = expand(eco["path"])
             old = read_text(path)
             if old == content and not args.force:
                 notes.append(f"[{eid}] 已是目标状态（{m['label']}），无需写入")
@@ -566,20 +676,28 @@ def build_plan(ecos: list[dict], args, probes: dict) -> tuple[list[Op], list[str
                 data["registry-mirrors"] = mirrors[:5]
                 ops.append(Op(eid, "file", path=path,
                               content=json.dumps(data, ensure_ascii=False, indent=2) + "\n", sudo=True))
-            else:  # apt
-                path = expand(eco["path"])
-                old = read_text(path)
-                if old is None:
-                    notes.append(f"[apt] 跳过：{path} 不存在（Ubuntu 24.04+ 用 deb822 .sources，请手工处理）")
-                    continue
+            else:  # apt（classic sources.list + deb822 *.sources 都处理）
                 host = m["host"]
-                new = re.sub(r"https?://(?:archive|security|ports)\.ubuntu\.com",
-                             f"https://{host}", old)
-                new = re.sub(r"https?://deb\.debian\.org", f"https://{host}", new)
-                if new == old:
-                    notes.append(f"[apt] 没有可替换的官方源行（可能已换过源）")
+                files = apt_files()
+                if not files:
+                    notes.append("[apt] 跳过：没找到 /etc/apt/sources.list 或 sources.list.d/*.sources")
                     continue
-                ops.append(Op(eid, "file", path=path, content=new, sudo=True))
+                changed = 0
+                for path in files:
+                    old = read_text(path)
+                    if old is None:
+                        continue
+                    new = apt_rewrite(old, host)
+                    if new is None or new == old:
+                        continue
+                    ops.append(Op(eid, "file", path=path, content=new, sudo=True))
+                    changed += 1
+                if not changed:
+                    notes.append("[apt] 没有可替换的官方源行（可能已经换过源）")
+                elif len(files) > 1:
+                    notes.append(f"[apt] 会改 {changed}/{len(files)} 个 apt 源文件")
+                if any(path.suffix == ".sources" for path in files):
+                    notes.append("[apt] 检测到 deb822 *.sources，已按 URIs 行换 host")
     return ops, notes, picks
 
 
@@ -683,9 +801,11 @@ def apply_ops(ops: list[Op], args, picks: dict | None = None) -> dict:
             "items": [x["path"] if x["kind"] == "file" else " ".join(x["argv"])
                       for x in manifest["items"]],
             "picks": {k: v["name"] for k, v in (picks or {}).items()},
+            "project": getattr(args, "project", None),
         })
         st["last_backup"] = bid
         st["last_picks"] = {k: v["name"] for k, v in (picks or {}).items()}
+        st["last_project"] = getattr(args, "project", None)
         save_state(st)
         prune_backups(keep=int(os.environ.get("XPS_KEEP_BACKUPS", "20")))
     return manifest
@@ -722,49 +842,96 @@ def write_file(path: Path, content: str, mode: int | None) -> None:
 
 # ---------------------------------------------------------------- 验证
 
-def verify_eco(eco: dict, picks: dict) -> tuple[str, str]:
+def match_any(eco: dict, value: str, key: str) -> dict | None:
+    """配置值是否指向本工具已知的任一镜像（而不是必须等于"当前最快"）。"""
+    if not value:
+        return None
+    for m in eco["mirrors"]:
+        cand = m.get(key)
+        if cand and (cand.rstrip("/") == value.rstrip("/") or cand in value):
+            return m
+    return None
+
+
+def verify_eco(eco: dict, picks: dict, project: str | None = None) -> tuple[str, str]:
     eid = eco["id"]
-    m = picks.get(eid)
-    if not m:
+    if not picks.get(eid):
         return "skip", "本次未选择"
+    path = eco_path(eco, project)
     try:
-        if eid == "pip":
-            txt = read_text(expand(eco["path"])) or ""
-            got = re.search(r"^\s*index-url\s*=\s*(\S+)", txt, re.M)
-            return ("ok", got.group(1)) if got and got.group(1) == m["index"] else ("fail", got.group(1) if got else "未配置")
+        if eid in ("pip", "uv", "poetry"):
+            txt = read_text(path) or ""
+            key = "index-url" if eid == "pip" else "url"
+            if eid == "poetry":
+                got = re.search(r'url\s*=\s*"([^"]+)"', txt)
+            elif eid == "uv":
+                got = re.search(r'url\s*=\s*"([^"]+)"', txt)
+            else:
+                got = re.search(r"^\s*index-url\s*=\s*(\S+)", txt, re.M)
+            value = got.group(1) if got else ""
+            hit = match_any(eco, value, "index")
+            if not hit:
+                return "fail", (value or "未配置" if value else "未配置")
+            if eid == "poetry" and 'priority = "primary"' not in txt:
+                return "fail", f"{hit['name']} 但缺 priority=primary"
+            if eid == "uv" and "default = true" not in txt:
+                return "fail", f"{hit['name']} 但缺 default=true"
+            return "ok", f"{hit['name']}  {value}"
         if eid == "npm":
-            txt = read_text(expand(eco["path"])) or ""
+            txt = read_text(path) or ""
             got = re.search(r"^\s*registry\s*=\s*(\S+)", txt, re.M)
-            return ("ok", got.group(1)) if got and got.group(1).rstrip("/") == m["base"].rstrip("/") else ("fail", got.group(1) if got else "未配置")
+            value = got.group(1) if got else ""
+            hit = match_any(eco, value, "base")
+            return ("ok", f"{hit['name']}  {value}") if hit else ("fail", value or "未配置")
         if eid == "conda":
-            txt = read_text(expand(eco["path"])) or ""
-            host = m["base"].split("://", 1)[1]
-            return ("ok", host) if host in txt else ("fail", "未发现镜像地址")
+            txt = read_text(path) or ""
+            for m in eco["mirrors"]:
+                if m["base"].split("://", 1)[1] in txt:
+                    return "ok", f"{m['name']}  {m['base']}"
+            return "fail", "未发现已知镜像地址"
         if eid == "cargo":
-            txt = read_text(expand(eco["path"])) or ""
-            ok = 'replace-with = "xps"' in txt and m["sparse"] in txt
-            return ("ok", m["sparse"]) if ok else ("fail", "未配置 replace-with")
+            txt = read_text(path) or ""
+            for m in eco["mirrors"]:
+                if m["sparse"] in txt:
+                    return "ok", f"{m['name']}  {m['sparse']}"
+            return "fail", "未配置已知 replace-with"
         if eid == "go":
             go = shutil.which("go")
             if not go:
                 return "skip", "PATH 里没有 go"
             got = subprocess.run([go, "env", "GOPROXY"], capture_output=True, text=True).stdout.strip()
-            return ("ok", got) if got == m["proxy"] else ("fail", got)
+            for m in eco["mirrors"]:
+                if m["proxy"] == got:
+                    return "ok", f"{m['name']}  {got}"
+            return "fail", got or "未配置"
         if eid == "hf":
-            txt = read_text(expand(eco["path"])) or ""
+            txt = read_text(path) or ""
             rc = read_text(expand("~/.bashrc")) or ""
-            ok = m["base"] in txt and MARK in rc and expand("~/bin/hfd").exists()
-            return ("ok", m["base"]) if ok else ("fail", "env.sh/ .bashrc / hfd 不完整")
+            need = ("HF_ENDPOINT", "PLAYWRIGHT_DOWNLOAD_HOST", "PUB_HOSTED_URL")
+            hit = match_any(eco, txt, "base")
+            ok = all(k in txt for k in need) and MARK in rc and expand("~/bin/hfd").exists()
+            return ("ok", f"{hit['name'] if hit else '自定义'}  env.sh+hfd") if ok else \
+                   ("fail", "env.sh / .bashrc / hfd 不完整")
         if eid == "github":
             p = expand("~/bin/ghclone")
             return ("ok", str(p)) if p.exists() and os.access(p, os.X_OK) else ("fail", "ghclone 未安装或不可执行")
         if eid == "docker":
-            txt = read_text(expand(eco["path"])) or ""
-            return ("ok", m["base"]) if m["base"] in txt else ("fail", "daemon.json 里没有该镜像")
+            txt = read_text(path) or ""
+            for m in eco["mirrors"]:
+                if m["base"] in txt:
+                    return "ok", f"{m['name']}  {m['base']}"
+            return "fail", "daemon.json 里没有已知镜像"
         if eid == "apt":
-            txt = read_text(expand(eco["path"])) or ""
-            left = re.findall(r"(?:archive|security|ports)\.ubuntu\.com|deb\.debian\.org", txt)
-            return ("ok", m["host"]) if not left else ("fail", f"仍有 {len(left)} 处官方源")
+            files = apt_files()
+            if not files:
+                return "skip", "没有 apt 源文件"
+            texts = {f: read_text(f) or "" for f in files}
+            left = sum(len(APT_OFFICIAL.findall(t)) for t in texts.values())
+            hit = next((m for m in eco["mirrors"]
+                        if any(m["host"] in t for t in texts.values())), None)
+            if left:
+                return "fail", f"仍有 {left} 处官方源"
+            return ("ok", f"{hit['name']}  {hit['host']}") if hit else ("fail", "没有发现已知镜像 host")
     except Exception as ex:
         return "fail", f"验证异常: {ex}"
     return "skip", "无验证器"
@@ -906,7 +1073,7 @@ def cmd_status(args) -> int:
              if (eid, name) in by_name}
     rows = []
     for eco in ecos:
-        status, detail = verify_eco(eco, picks) if picks else ("?", "未记录本次选择")
+        status, detail = verify_eco(eco, picks, st.get("last_project")) if picks else ("?", "未记录本次选择")
         rows.append({"eco": eco["id"], "status": status, "detail": detail})
     bks = sorted(p.name for p in BACKUP_DIR.iterdir() if (p / "manifest.json").exists()) \
         if BACKUP_DIR.exists() else []
@@ -1026,7 +1193,7 @@ def cmd_verify(args) -> int:
     picks = {e["id"]: choose(e, args, probes) for e in ecos}
     rows = []
     for eco in ecos:
-        status, detail = verify_eco(eco, picks)
+        status, detail = verify_eco(eco, picks, getattr(args, "project", None))
         rows.append((eco["id"], eco["label"], status, detail))
     if args.json:
         print(json.dumps([{"eco": a, "label": b, "status": c, "detail": d} for a, b, c, d in rows],
@@ -1103,7 +1270,7 @@ def main(argv: list[str] | None = None) -> int:
   xps verify --only pip,npm         验证
   xps rollback --list               看备份
   xps rollback                      回滚最近一次""")
-    ap.add_argument("-V", "--version", action="version", version="xps 1.0.0")
+    ap.add_argument("-V", "--version", action="version", version="xps 1.1.0")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     d = sub.add_parser("doctor", help="环境与连通性体检")
@@ -1132,6 +1299,8 @@ def main(argv: list[str] | None = None) -> int:
         a.add_argument("--timeout", type=int, default=8)
         a.add_argument("--refresh", action="store_true")
         a.add_argument("--force", action="store_true", help="允许接管已有配置")
+        a.add_argument("--project", metavar="DIR",
+                       help="项目级落点：把 .npmrc / uv.toml / pyproject.toml 写进该项目而不是用户目录")
         a.add_argument("--json", action="store_true")
 
     a = sub.add_parser("apply", help="应用镜像配置")

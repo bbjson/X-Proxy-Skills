@@ -40,15 +40,18 @@ xps rollback --yes         # 不满意一条命令回原样
 
 | 生态 | 配置落点 | 探测 | 自动选最快 | 备份 | 需要 sudo |
 |---|---|---|---|---|---|
-| pip（+ uv 说明） | `~/.config/pip/pip.conf` | ✅ | ✅ | ✅ | — |
+| pip | `~/.config/pip/pip.conf` | ✅ | ✅ | ✅ | — |
+| uv | `~/.config/uv/uv.toml` | ✅ | ✅ | ✅ | — |
+| poetry | `<project>/pyproject.toml` | ✅ | ✅ | ✅ | —（项目级，`--project`） |
 | npm / pnpm / yarn / bun | `~/.npmrc` | ✅ | ✅ | ✅ | — |
 | conda / mamba | `~/.condarc` | ✅ | ✅ | ✅ | — |
 | cargo | `~/.cargo/config.toml`（sparse） | ✅ | ✅ | ✅ | — |
 | go modules | `go env -w GOPROXY` | ✅ | ✅ | ✅ | — |
 | HuggingFace | `HF_ENDPOINT` + `~/bin/hfd` | ✅ | ✅ | ✅ | — |
+| 下载器二进制 | env.sh：Playwright/Puppeteer/Electron/node-gyp/Flutter | ✅ | ✅ | ✅ | — |
 | GitHub | `~/bin/ghclone`（前缀轮换） | ✅ | ✅ | ✅ | — |
 | Docker Registry | `/etc/docker/daemon.json` | ✅ | ✅ | ✅ | 是（opt-in） |
-| apt（22.04 sources.list） | `/etc/apt/sources.list` | ✅ | ✅ | ✅ | 是（opt-in） |
+| apt（sources.list + deb822） | `/etc/apt/sources.list`、`sources.list.d/*.sources` | ✅ | ✅ | ✅ | 是（opt-in） |
 
 ## 安装
 
@@ -74,6 +77,9 @@ xps apply --only conda --mirror ustc
 
 # 接管已有的非托管配置（会先备份）
 xps apply --only conda --force
+
+# 项目级落点（npm/uv 写进项目目录，poetry 写进 pyproject.toml）
+xps apply --only npm,uv,poetry --project ~/code/app
 
 # 需要 sudo 的项必须显式点名，且不会自动重启服务
 xps apply --only docker      # 之后手动 systemctl restart docker
@@ -125,24 +131,25 @@ CI：`.github/workflows/ci.yml`，push 时在 Python 3.9 / 3.12 上跑 `tests/sm
 
 已闭环：
 
-- 9 类生态的探测 / 备份 / 应用 / 验证 / 回滚，38 项离线测试（CI 在 py3.9 / 3.12 上跑）
+- 11 类生态的探测 / 备份 / 应用 / 验证 / 回滚，49 项离线测试（CI 在 py3.9 / 3.12 上跑）
 - 写失败自动回滚、`--dry-run` 零落盘、托管标记保护、备份轮转（保留 20 份）
+- uv 用户级、poetry 项目级、`--project` 落点、deb822 apt、Playwright/Puppeteer/Flutter 二进制镜像
 - `--json` 全命令机读输出；`--json` 下拒绝隐式交互
 - cargo 生成结果用 `tomllib` 校验（不会产出非法 TOML，也不会重复 `[net]`）
 
-还没做（`references/troubleshooting.md` 里给的是手工命令）：
+还没做：
 
-- `uv` / `poetry` 的 renderer（它们不读 pip.conf）
-- Ubuntu 24.04+ 的 deb822 `.sources`
-- Maven / Gradle / gem / Flutter
-- `--scope project`：项目级落点
+- Maven / Gradle / gem
+- Windows 原生
 - 代理本身的配置（本工具只探测和提示，不写 clash/v2ray 配置）
 
 ## 路线图
 
-- [ ] `--scope project`：把镜像写进项目本地（`.npmrc` / `pip.conf` / `pyproject.toml`）而不是用户全局
-- [ ] deb822（Ubuntu 24.04+ `/etc/apt/sources.list.d/*.sources`）支持
-- [ ] uv / poetry 专用 renderer（目前只在 references 里给命令）
+- [x] `--project`：项目级落点（npm `.npmrc` / uv `uv.toml` / poetry `pyproject.toml`）
+- [x] deb822（Ubuntu 24.04+ `/etc/apt/sources.list.d/*.sources`）
+- [x] uv / poetry renderer
+- [x] Playwright / Puppeteer / Electron / node-gyp / Flutter 二进制镜像
+- [ ] pip 的项目级落点（`PIP_CONFIG_FILE` 不被自动发现，暂不做）
 - [ ] Maven `settings.xml` / Gradle `init.gradle`
 - [ ] `xps explain <错误文本>`：把报错映射到 troubleshooting.md 的条目
 - [ ] 镜像站健康度趋势（多次 probe 存历史，画退化曲线）

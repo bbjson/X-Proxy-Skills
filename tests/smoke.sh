@@ -91,7 +91,7 @@ sys.path.insert(0, str(root / "scripts"))
 import xps
 eco = {"id": "cargo", "path": str(target)}
 m = {"sparse": "sparse+https://rsproxy.cn/index/"}
-_, new, _ = xps.render_cargo(eco, m, force=False)
+_, new, _ = xps.render_cargo(eco, m, False, pathlib.Path(target))
 out = pathlib.Path(str(target) + ".new")
 out.write_text(new, encoding="utf-8")
 assert new.count("[net]") == 1, "[net] 不应重复"
@@ -132,7 +132,50 @@ else
   ok "带凭据 URL 被拒绝"
 fi
 
-echo "== 13. 符号链接安装可用"
+echo "== 13. uv（用户级）+ 下载器镜像"
+"$XPS" apply --only uv,hf --no-probe --yes >/dev/null 2>&1
+check "uv.toml 有默认索引" "grep -q 'default = true' '$HOME/.config/uv/uv.toml'"
+check "uv verify 通过" "'$XPS' verify --only uv --no-probe >/dev/null 2>&1"
+python3 - "$HOME/.config/uv/uv.toml" <<'PYEOF'
+import sys
+try:
+    import tomllib
+except ImportError:
+    sys.exit(0)
+d = tomllib.load(open(sys.argv[1], "rb"))
+assert d["index"][0]["default"] is True and "tuna" in d["index"][0]["url"]
+PYEOF
+check "uv.toml 是合法 TOML（有 tomllib 时）" "[ $? -eq 0 ]"
+check "env.sh 含 Playwright 镜像" "grep -q 'PLAYWRIGHT_DOWNLOAD_HOST' '$HOME/.config/x-proxy-skills/env.sh'"
+check "env.sh 含 Flutter 镜像" "grep -q 'PUB_HOSTED_URL' '$HOME/.config/x-proxy-skills/env.sh'"
+
+echo "== 14. --project 项目级落点"
+mkdir -p "$TMP/proj"
+printf '[tool.poetry]\nname = "demo"\nversion = "0.1.0"\n' > "$TMP/proj/pyproject.toml"
+"$XPS" apply --only poetry,npm,uv --project "$TMP/proj" --no-probe --yes >/dev/null 2>&1
+check "项目 .npmrc 写了 registry" "grep -q 'npmmirror' '$TMP/proj/.npmrc'"
+check "项目 uv.toml 存在" "[ -f '$TMP/proj/uv.toml' ]"
+check "pyproject 加 primary source" "grep -q 'priority = \"primary\"' '$TMP/proj/pyproject.toml'"
+check "项目模式 verify 通过" "'$XPS' verify --only poetry,npm,uv --project '$TMP/proj' --no-probe >/dev/null 2>&1"
+check "poetry 无 --project 时跳过" "'$XPS' apply --only poetry --no-probe --yes 2>&1 | grep -q '只能项目级配置'"
+
+echo "== 15. apt 改写（classic + deb822，纯函数）"
+python3 - "$ROOT" <<'PYEOF'
+import sys, pathlib
+sys.path.insert(0, str(pathlib.Path(sys.argv[1]) / "scripts"))
+import xps
+classic = "deb http://archive.ubuntu.com/ubuntu jammy main\ndeb http://security.ubuntu.com/ubuntu jammy-security main\n"
+out = xps.apt_rewrite(classic, "mirrors.tuna.tsinghua.edu.cn")
+assert "archive.ubuntu.com" not in out and "security.ubuntu.com" not in out
+assert out.count("https://mirrors.tuna.tsinghua.edu.cn/ubuntu") == 2
+deb822 = "Types: deb\nURIs: http://archive.ubuntu.com/ubuntu/\nSuites: noble\nComponents: main\n"
+out = xps.apt_rewrite(deb822, "mirrors.ustc.edu.cn")
+assert "URIs: https://mirrors.ustc.edu.cn/ubuntu/" in out
+assert xps.apt_rewrite("deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu jammy main\n", "x") is None
+PYEOF
+check "apt 改写正确" "[ $? -eq 0 ]"
+
+echo "== 16. 符号链接安装可用"
 mkdir -p "$TMP/links"
 ln -sfn "$ROOT/bin/xps" "$TMP/links/xps"
 check "经符号链接 --version 可用" "'$TMP/links/xps' --version | grep -q '^xps '"

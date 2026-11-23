@@ -5,15 +5,16 @@ description: >
   conda、cargo、Go、Docker Registry、GitHub 加速前缀、HuggingFace(hf-mirror)、apt 源，
   并为每次改动做整文件备份与一键回滚。当用户说「下载慢」「装不上」「超时」「连接被重置」
   「ECONNRESET」「ETIMEDOUT」「SSL 握手失败」「换源」「换镜像」「镜像加速」「docker 拉不动」
-  「pip 拉不动」「npm 装不动」「git clone 卡住」「github 打不开」「hf 下不动」「clash/代理配好了还是慢」
-  时使用。也用于写 Dockerfile/CI 前的镜像源规划与排障。
+  「pip 拉不动」「npm 装不动」「git clone 卡住」「github 打不开」「hf 下不动」「uv 太慢」
+  「poetry 拉包慢」「playwright/puppeteer 浏览器下不下来」「flutter pub get 卡住」
+  「clash/代理配好了还是慢」时使用。也用于写 Dockerfile/CI 前的镜像源规划与排障。
 license: MIT
 compatibility: >
   Linux / macOS / WSL 优先（Ubuntu 22.04 实测）。依赖 bash、curl、python3(>=3.9)、git。
   需要 sudo 的项（docker、apt）只在显式 --only 指定时才会执行。
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 metadata:
-  version: "1.0.0"
+  version: "1.1.0"
   category: devtools
   region: china-mainland
   verified: "2026-11-23"
@@ -84,21 +85,23 @@ ln -s "$PWD/bin/xps" ~/.local/bin/xps
 
 | 生态 | 目标 | 探测 | 自动选最快 | 备份 | 说明 |
 |---|---|---|---|---|---|
-| `pip` | `~/.config/pip/pip.conf` | ✅ | ✅ | ✅ | 覆盖 uv/poetry（它们读同一个 index 配置需另配，见 references） |
+| `pip` | `~/.config/pip/pip.conf` | ✅ | ✅ | ✅ | |
+| `uv` | `~/.config/uv/uv.toml`（`[[index]] default=true`） | ✅ | ✅ | ✅ | uv **不读** pip.conf，单独写 |
+| `poetry` | `<project>/pyproject.toml` | ✅ | ✅ | ✅ | 只能项目级：必须 `--project DIR` |
 | `npm` | `~/.npmrc` | ✅ | ✅ | ✅ | pnpm/yarn/bun 共用 registry |
 | `conda` | `~/.condarc` | ✅ | ✅ | ✅ | 已有非托管 .condarc 时必须 `--force` |
 | `cargo` | `~/.cargo/config.toml` | ✅ | ✅ | ✅ | sparse index |
 | `go` | `go env -w GOPROXY` | ✅ | ✅ | ✅（命令级 undo） | 没装 go 自动跳过 |
 | `hf` | `~/.config/x-proxy-skills/env.sh` + `~/bin/hfd` | ✅ | ✅ | ✅ | `HF_ENDPOINT=hf-mirror.com` |
+| 下载器二进制 | 同上 env.sh | ✅ | ✅ | ✅ | Playwright / Puppeteer / Electron / node-gyp / Flutter 的国内 CDN |
 | `github` | `~/bin/ghclone` | ✅ | ✅ | ✅ | **只装助手，不改 git 配置** |
 | `docker` | `/etc/docker/daemon.json` | ✅ | ✅ | ✅ | opt-in + sudo |
-| `apt` | `/etc/apt/sources.list` | ✅ | ✅ | ✅ | opt-in + sudo；deb822 系统需手工 |
+| `apt` | `sources.list` + `sources.list.d/*.sources` | ✅ | ✅ | ✅ | opt-in + sudo；http 自动升 https |
 
 ## 平台与边界
 
 - **支持**：Linux（Ubuntu 22.04 实测）、macOS、WSL。Windows 原生不支持（没有 sudo/apt 语义，路径也不同）。
-- **不做**：`uv` / `poetry` 的配置落点（它们不读 `pip.conf`，references 给了正确命令）；Ubuntu 24.04+ 的
-  deb822 `.sources`；Maven/Gradle/gem；`--scope project`（目前只写用户级）。
+- **不做**：Maven/Gradle/gem；Windows。`poetry` 只支持项目级（`--project DIR`）。
 - **需要 root 的两项**（docker/apt）必须显式 `--only`，且本工具**不会**帮你重启服务。
 - 半途失败会**自动回滚**已写入的项，并留下 `aborted` 备份记录，可 `xps rollback --to <id>` 复查。
 

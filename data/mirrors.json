@@ -78,6 +78,27 @@
       ]
     },
     {
+      "id": "uv",
+      "label": "uv（Astral）",
+      "type": "file",
+      "path": "~/.config/uv/uv.toml",
+      "sudo": false,
+      "optin": false,
+      "mirrors_from": "pip",
+      "note": "uv 不读 pip.conf；这里写 uv.toml 的默认索引"
+    },
+    {
+      "id": "poetry",
+      "label": "poetry（项目级）",
+      "type": "file",
+      "path": "pyproject.toml",
+      "sudo": false,
+      "optin": false,
+      "mirrors_from": "pip",
+      "project_only": true,
+      "note": "poetry 没有用户级索引配置；必须 --project <目录>，写进该项目的 pyproject.toml"
+    },
+    {
       "id": "conda",
       "label": "Conda / mamba",
       "type": "file",
@@ -190,12 +211,12 @@
     },
     {
       "id": "hf",
-      "label": "HuggingFace (hf-mirror / ModelScope)",
+      "label": "HuggingFace + 二进制下载器（Playwright/Puppeteer/Electron/Flutter）",
       "type": "env",
       "path": "~/.config/x-proxy-skills/env.sh",
       "sudo": false,
       "optin": false,
-      "note": "HF_ENDPOINT 只接受 HF 兼容镜像；ModelScope 不是 HF 兼容端点，要用 `modelscope download --model <id>`",
+      "note": "写 env.sh（HF_ENDPOINT + 下载器镜像）+ ~/.bashrc source 块 + ~/bin/hfd",
       "probe": {
         "url": "{base}/api/models?limit=1",
         "accept": [
@@ -294,12 +315,12 @@
     },
     {
       "id": "apt",
-      "label": "Ubuntu/Debian apt 源",
+      "label": "Ubuntu/Debian apt 源（sources.list + deb822 *.sources）",
       "type": "file",
       "path": "/etc/apt/sources.list",
       "sudo": true,
       "optin": true,
-      "note": "显式 --only apt 才会执行；只改 archive/security/ports 的 host，其它行不动",
+      "note": "显式 --only apt 才会执行；只换 official host，路径与其它字段不动",
       "probe": {
         "url": "{base}/ubuntu/dists/jammy/Release",
         "accept": [

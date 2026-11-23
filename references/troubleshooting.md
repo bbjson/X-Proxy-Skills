@@ -66,19 +66,24 @@ pip install -v <pkg> 2>&1 | tail -30   # 看卡在哪个域名
 ### uv 不读 pip.conf
 
 ```bash
-export UV_DEFAULT_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple   # uv >= 0.4.23
-export UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple       # 旧版
-# 或写进项目 pyproject.toml:
-# [[tool.uv.index]]
-# url = "https://pypi.tuna.tsinghua.edu.cn/simple"
-# default = true
+xps apply --only uv            # 写 ~/.config/uv/uv.toml（[[index]] default = true）
+uv pip install -v <pkg>        # 验证：日志里应该是国内域名
 ```
+
+手工等价物：`UV_DEFAULT_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple`（uv ≥ 0.4.23），
+旧版用 `UV_INDEX_URL`。项目级：`xps apply --only uv --project <dir>` 写 `<dir>/uv.toml`。
 
 ### poetry
 
+poetry **没有用户级索引配置**，只能项目级：
+
 ```bash
+xps apply --only poetry --project ~/code/app
+# 或手工
 poetry source add --priority=primary tuna https://pypi.tuna.tsinghua.edu.cn/simple
 ```
+
+`priority=primary` 意味着只查这个源；要保留官方源做兜底，改成 `supplemental`。
 
 ---
 
@@ -94,12 +99,29 @@ npm install --loglevel=http     # 看是哪个 host 慢
 
 - `npm ERR! network request to https://registry.npmjs.org failed` → 你的 registry 没生效（可能项目里有 `.npmrc` 覆盖了全局）。项目级 `.npmrc` 优先。
 - `pnpm` / `yarn` / `bun` 都读 `~/.npmrc` 的 `registry`，但**各自的缓存目录不同**，换源后旧缓存仍可能报错：`npm cache verify` / `pnpm store prune`。
-- 原生模块（`node-gyp`）走的是 `nodejs.org` 的 headers 下载，跟 registry 无关：
+- 原生模块（`node-gyp`）走的是 `nodejs.org` 的 headers 下载，跟 registry 无关；Electron/Playwright/Puppeteer
+  也一样是独立二进制。`xps apply --only hf` 会把这些镜像写进 `~/.config/x-proxy-skills/env.sh`：
+
   ```bash
-  npm config set disturl https://registry.npmmirror.com/-/binary/node
-  npm config set electron_mirror https://registry.npmmirror.com/-/binary/electron/
+  export npm_config_disturl=https://registry.npmmirror.com/-/binary/node
+  export ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/
+  export PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.npmmirror.com/binaries/playwright
+  export PUPPETEER_DOWNLOAD_BASE_URL=https://cdn.npmmirror.com/binaries/chrome-for-testing
   ```
-  Playwright / Puppeteer 的浏览器二进制同理（`PLAYWRIGHT_DOWNLOAD_HOST` / `PUPPETEER_DOWNLOAD_BASE_URL`）。
+
+  验证：`npx playwright install chromium` 的下载 URL 里应该出现 `cdn.npmmirror.com`。
+  注意这些是**下载期**变量，已装好的浏览器不会因此重下；要重下加 `--force`。
+
+### Flutter / Dart
+
+```bash
+export PUB_HOSTED_URL=https://pub.flutter-io.cn
+export FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn
+flutter pub get
+```
+
+`flutter upgrade` 仍会访问 `storage.googleapis.com` 的 SDK 包，`FLUTTER_STORAGE_BASE_URL` 已覆盖大部分；
+若仍卡住，检查是否被 `PUB_HOSTED_URL` 之外的工具链（Android SDK）拖慢。
 
 ---
 

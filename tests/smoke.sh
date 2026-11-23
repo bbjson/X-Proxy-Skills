@@ -107,13 +107,12 @@ check "--json 缺 --yes 时返回非零" "[ $? -ne 0 ]"
 check "--json 失败时没写 pip.conf" "[ ! -e '$HOME/.config/pip/pip.conf' ]"
 
 echo "== 11. 写失败自动回滚"
-mkdir -p "$HOME/blocked/bin"
+mkdir -p "$HOME/blocked"
 printf 'export KEEP=1\n' > "$HOME/blocked/.bashrc"
-chmod 500 "$HOME/blocked/bin"              # 只读目录：hfd 写入必然失败
+printf '' > "$HOME/blocked/bin"                # 父路径是普通文件：root 也写不进去
 XPS_STATE_DIR="$TMP/state2" HOME="$HOME/blocked" \
   "$XPS" apply --only hf --no-probe --yes >/dev/null 2>&1
 rc=$?
-chmod 700 "$HOME/blocked/bin"
 check "写失败返回非零" "[ $rc -ne 0 ]"
 check "已写入的 .bashrc 被自动还原" "[ \"\$(cat '$HOME/blocked/.bashrc')\" = 'export KEEP=1' ]"
 check "已写入的 env.sh 被自动删除" "[ ! -e '$HOME/blocked/.config/x-proxy-skills/env.sh' ]"

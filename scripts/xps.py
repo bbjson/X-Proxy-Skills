@@ -1021,7 +1021,7 @@ def cmd_apply(args) -> int:
 def cmd_verify(args) -> int:
     data = load_data()
     ecos = sel(data["ecosystems"], args.only, args.exclude, include_optin=bool(args.only))
-    probes = probe_all(ecos, args.timeout, args.refresh, verbose=False)
+    probes = {} if args.no_probe else probe_all(ecos, args.timeout, args.refresh, verbose=False)
     picks = {e["id"]: choose(e, args, probes) for e in ecos}
     rows = []
     for eco in ecos:

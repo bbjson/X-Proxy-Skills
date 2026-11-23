@@ -584,7 +584,8 @@ def build_plan(ecos: list[dict], args, probes: dict) -> tuple[list[Op], list[str
 
 
 def make_backup_id() -> str:
-    return now().strftime("%Y%m%d-%H%M%S") + f"-{os.getpid() % 1000:03d}"
+    # 微秒级 + pid：保证按目录名字典序 == 时间序（rollback --list 的 tail -1 必须是最近一次）
+    return now().strftime("%Y%m%d-%H%M%S-%f") + f"-{os.getpid() % 1000:03d}"
 
 
 def apply_ops(ops: list[Op], args, picks: dict | None = None) -> dict:
